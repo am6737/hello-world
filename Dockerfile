@@ -20,9 +20,8 @@
 # Use a minimal base image to run the Go app
 FROM alpine:3.18
 
-
 # Set the working directory inside the container
-WORKDIR /app
+#WORKDIR /app
 
 # Copy the built Go binary from the builder stage
 #COPY --from=builder /app/main .
