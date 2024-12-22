@@ -138,8 +138,8 @@ gen: gen-openapi ## 自动生成代码(proto、openapi...)
 
 .PHONY: gen-openapi
 gen-openapi: ## 生成 OpenAPI 规范
-	swag init --generalInfo cmd/main.go --output ./api/openapi
-	@echo "OpenAPI spec generated successfully in ./api/openapi/swagger.json"
+	swag init --generalInfo cmd/main.go --output ./api/openapi/v2
+	@echo "OpenAPI spec generated successfully in ./api/openapi/v2/swagger.json"
 
 
 .PHONY: clean
