@@ -1,31 +1,37 @@
-## Use the official Golang image as the base image for building
-#FROM golang:1.23.2-alpine as builder
-#
-## Set build arguments for platform and architecture
-#ARG TARGETOS=linux
-#ARG TARGETARCH=amd64
-#
-## Set the working directory inside the container
-#WORKDIR /app
-#
-## Copy Go module files and download dependencies
-#COPY go.mod go.sum ./
-#RUN go mod download
-#
-## Copy the rest of the source code
-#COPY . .
+FROM golang:1.23.2-alpine AS builder
 
-# Build the Go app with specified target OS and architecture
-#RUN GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /app/main .
-# Use a minimal base image to run the Go app
+ARG TARGETARCH
+ARG TARGETOS
+
+ARG GOGCFLAGS
+ARG GOLDFLAGS
+ARG GOFLAGS
+
+ARG BUILD_BRANCH
+ARG BUILD_COMMIT
+ARG BUILD_TIME
+
+ENV BUILD_BRANCH=${BUILD_BRANCH}
+ENV BUILD_COMMIT=${BUILD_COMMIT}
+ENV BUILD_TIME=${BUILD_TIME}
+ENV BUILD_GO_VERSION=1.23.2
+
+RUN echo "Branch: ${BUILD_BRANCH}, Commit: ${BUILD_COMMIT}, Build Time: ${BUILD_TIME}, Go version: ${BUILD_GO_VERSION}"
+
+WORKDIR /app
+
+COPY go.mod go.sum ./
+
+RUN go mod tidy
+
+COPY . .
+
+RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} CGO_ENABLED=0 go build -gcflags "${GOGCFLAGS}" -ldflags "${GOLDFLAGS}" -a -o hello-world ${GOFLAGS} ./cmd/;
+
 FROM alpine:3.18
 
-# Set the working directory inside the container
-#WORKDIR /app
+WORKDIR /app
 
-# Copy the built Go binary from the builder stage
-#COPY --from=builder /app/main .
-ADD ./bin/http-server /http-server
+COPY --from=builder /app/hello-world .
 
-# Command to run the Go app
-ENTRYPOINT ["./http-server"]
+ENTRYPOINT ["./hello-world"]

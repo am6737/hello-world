@@ -1,0 +1,37 @@
+basePath: /
+definitions:
+  main.HelloResponse:
+    properties:
+      message:
+        type: string
+      version:
+        type: string
+    type: object
+host: localhost:8080
+info:
+  contact:
+    email: support@example.com
+    name: API Support
+    url: http://www.example.com/support
+  description: This is a simple Hello World API.
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+  termsOfService: http://example.com/terms/
+  title: Hello World API
+  version: "1.0"
+paths:
+  /:
+    get:
+      description: Returns a greeting message along with the application version.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/main.HelloResponse'
+      summary: Greet the user
+      tags:
+      - Hello
+swagger: "2.0"
