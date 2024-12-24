@@ -7,7 +7,7 @@ LOCALBIN := $(shell pwd )/bin
 # 镜像构建相关变量
 REGISTRY := harbor.tiduyun.com
 PROJECT := library
-TAG ?= latest
+TAG ?= python
 IMG := $(REGISTRY)/$(PROJECT)/$(APP_NAME):$(TAG)
 DOCKER_BUILDX_IMAGE := $(APP_NAME):buildx
 
@@ -16,29 +16,7 @@ VERSION ?= v1.0.0
 BUILD_BRANCH := $(shell git rev-parse --abbrev-ref HEAD)
 BUILD_COMMIT := $(shell git rev-parse HEAD)
 BUILD_TIME := $(shell date '+%Y-%m-%d %H:%M:%S')
-BUILD_GO_VERSION := $(shell go version | grep -o 'go[0-9].[0-9].*')
-VERSION_PATH := git.tiduyun.com/liangmaoshen/hello-world/pkg/version
 PLATFORM := linux/arm64
-
-# 编译标志
-GOFLAGS := $(EXTRA_GOFLAGS)
-GOGCFLAGS := ""
-GOLDFLAGS := -X '${VERSION_PATH}.GitTag=${VERSION}' \
-	-X '${VERSION_PATH}.GitBranch=${BUILD_BRANCH}' \
-	-X '${VERSION_PATH}.GitCommit=${BUILD_COMMIT}' \
-	-X '${VERSION_PATH}.BuildTime=${BUILD_TIME}' \
-	-X '${VERSION_PATH}.GoVersion=${BUILD_GO_VERSION}' \
-	-extldflags \"-static\"
-
-# 调试标志
-ifeq ($(DEBUG),1)
-	# 调试模式 - 禁用优化和内联
-	GOGCFLAGS := "all=-N -l"
-else
-	# 发布模式 - 禁用符号和 DWARF 信息，修剪嵌入的路径
-	GOLDFLAGS := -s -w $(GOLDFLAGS)
-	GOFLAGS += -trimpath
-endif
 
 
 .PHONY: all
@@ -47,73 +25,72 @@ all: build
 $(LOCALBIN):
 	@mkdir -p $(LOCALBIN)
 
-#.PHONY: build
-#build: dep gen fmt vet ## 编译项目并生成可执行文件
-#	CGO_ENABLED=0 go build -gcflags $(GOGCFLAGS) -ldflags "$(GOLDFLAGS)" -o $(LOCALBIN)/$(APP_NAME) $(GOFLAGS) ./cmd/$(APP_NAME)
 
+# 定义变量
+MAIN_PY_PATH=src/
+BUILD_DIR=pyc
+VERSION_FILE=version.txt
 .PHONY: build
-build: dep gen fmt vet ## 编译项目并生成可执行文件
-	echo $(PLATFORM) | tr ',' '\n' | while read plat; do \
-		OS=$$(echo $$plat | cut -d'/' -f1); \
-		ARCH=$$(echo $$plat | cut -d'/' -f2); \
-		GOOS=$$OS GOARCH=$$ARCH CGO_ENABLED=0 go build -gcflags $(GOGCFLAGS) -ldflags "$(GOLDFLAGS)" -a -o $(LOCALBIN)/$(APP_NAME)-$$OS-$$ARCH $(GOFLAGS) ./cmd; \
-	done
+# 编译目标
+build: dep test
+	mkdir -p $(BUILD_DIR)
+
+	cp -r $(MAIN_PY_PATH)/* $(BUILD_DIR)/
+
+	python3 -O -m compileall -b $(BUILD_DIR)/
+
+	find $(BUILD_DIR)/ -name "*.py" | xargs rm -rf
+	find $(BUILD_DIR)/ -name "__pycache__" | xargs rm -rf
+
+	echo "buildTime: ${BUILD_TIME}" > $(BUILD_DIR)/$(VERSION_FILE)
+	echo "branch: ${BUILD_BRANCH}" >> $(BUILD_DIR)/$(VERSION_FILE)
+	echo "commitId: ${BUILD_COMMIT}" >> $(BUILD_DIR)/$(VERSION_FILE)
+	echo "version: ${VERSION}" >> $(BUILD_DIR)/$(VERSION_FILE)
 
 dep: ## 获取依赖项
-	@go mod tidy
+	@pip freeze > requirements.txt
+	@pip install -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
 
 .PHONY: run
 run: dep ## 运行开发服务器
-	@go run ./cmd/$(APP_NAME)
+	@python3 src/main.py
 
-.PHONY: vet
-vet: ## 运行 go vet 检查代码
-	go vet ./...
 
 # 测试任务
 .PHONY: test
-test: fmt vet ## 运行所有测试
-	go test -v -short -race -covermode=atomic ./...
+test:
+
 
 .PHONY: lint
-lint: lint-go lint-markdown lint-yaml ## 运行所有文件进行对应的静态检查任务
-
-.PHONY: fmt
-fmt: fmt-go ## 格式化对应的文件内容
-
-.PHONY: fmt-go
-fmt-go: ## 格式化 Go 代码
-	go fmt ./...
+lint: lint-python lint-markdown lint-yaml ## 运行所有文件进行对应的静态检查任务
 
 
 .PHONY: install
-install: install-swag install-golangci-lint install-license-checker ## 下载需要用到的工具
+install: install-lint install-openapi-generator-cli ## 下载需要用到的工具
 
-GO_SWAGGER_VERSION = v1.16.4
-.PHONY: install-swag
-install-swag:
-	if ! test -x $(LOCALBIN)/swag || ! $(LOCALBIN)/swag --version | grep $(GO_SWAGGER_VERSION) >/dev/null; then \
-		GOBIN=$(LOCALBIN) go install github.com/swaggo/swag/cmd/swag@$(GO_SWAGGER_VERSION); \
-	fi
+.PHONY: install-lint
+install-lint: ## 安装 lint 工具
+	@echo "Installing pylint to $(LOCALBIN)..."
+	python3 -m venv myenv
+	. myenv/bin/activate && pip install isort black flake8
 
-GOLANGCI_LINT_VERSION = v1.62.2
-.PHONY: install-golangci-lint
-install-golangci-lint:
-	if ! test -x $(LOCALBIN)/golangci-lint || ! $(LOCALBIN)/golangci-lint --version | grep $(GOLANGCI_LINT_VERSION) >/dev/null; then \
-		GOBIN=$(LOCALBIN) go install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION); \
-	fi
-
-LICENSE_CHECKER_VERSION = v0.6.0
-.PHONY: install-license-checker
-install-license-checker: $(LOCALBIN)
-	if ! test -x $(LOCALBIN)/license-eye || ! $(LOCALBIN)/license-eye --version | grep $(LICENSE_CHECKER_VERSION) >/dev/null; then \
-		GOBIN=$(LOCALBIN) go install github.com/apache/skywalking-eyes/cmd/license-eye@$(LICENSE_CHECKER_VERSION); \
+.PHONY: install-openapi-generator-cli
+install-openapi-generator-cli: ## 安装 openapi-generator-cli
+	@if ! command -v openapi-generator-cli >/dev/null 2>&1; then \
+		npm install @openapitools/openapi-generator-cli -g; \
 	fi
 
 
-.PHONY: lint-go
-lint-go: install-golangci-lint ## 对 Go 代码进行静态分析
-	$(LOCALBIN)/golangci-lint run
+.PHONY: lint-python
+lint-python: ## 对 python 代码进行静态分析
+	@# 检查导入顺序
+	isort --check src/main.py
+
+	@# 检查代码格式
+	black --check src/main.py
+
+	@# 检查代码风格问题
+	flake8 --max-line-length=120 src/main.py
 
 .PHONY: lint-markdown
 lint-markdown: ## 对 Markdown 文件进行检查
@@ -134,12 +111,33 @@ lint-yaml:
 
 .PHONY: gen
 gen: gen-openapi ## 自动生成代码(proto、openapi...)
-	go generate ./...
 
+UNAME := $(shell uname)
 .PHONY: gen-openapi
 gen-openapi: ## 生成 OpenAPI 规范
-	swag init --generalInfo cmd/main.go --output ./api/openapi/v2
-	@echo "OpenAPI spec generated successfully in ./api/openapi/v2/swagger.json"
+	mkdir -p /tmp/hello-world
+	rm -rf /tmp/hello-world/tmp_code
+	openapi-generator-cli generate -i api/openapi/v3/swagger.yaml -g python-flask -o /tmp/hello-world/tmp_code
+
+	@# mac系统下有bug，解决方法 -i后增加空字符串，见 https://stackoverflow.com/questions/17534840/sed-throws-bad-flag-in-substitute-command/17535174
+	@if [ "$(UNAME)" = "Darwin" ]; then \
+		find "/tmp/steamer-api/tmp_code/openapi_server/" -type f -name \*.py -exec sed -i '' 's/import openapi_server\./import app.api./g' {} +; \
+		find "/tmp/steamer-api/tmp_code/openapi_server/" -type f -name \*.py -exec sed -i '' 's/from openapi_server/from app.api/g' {} +; \
+		find "/tmp/steamer-api/tmp_code/openapi_server/" -type f -name \*.py -exec sed -i '' 's/getattr(openapi_server\.models/getattr(app.api.models/g' {} +; \
+		find "/tmp/steamer-api/tmp_code/openapi_server/" -type f -name \*.py -exec sed -i '' 's/import openapi_server\./import app.api./g' {} +; \
+		find "/tmp/steamer-api/tmp_code/openapi_server/" -type f -name \*.py -exec sed -i '' 's/from openapi_server/from app.api/g' {} +; \
+		find "/tmp/steamer-api/tmp_code/openapi_server/" -type f -name \*.py -exec sed -i '' 's/getattr(openapi_server\.models/getattr(app.api.models/g' {} +; \
+	else \
+		find "/tmp/steamer-api/tmp_code/openapi_server/" -type f -name \*.py -exec sed -i 's/import openapi_server\./import app.api./g' {} +; \
+		find "/tmp/steamer-api/tmp_code/openapi_server/" -type f -name \*.py -exec sed -i 's/from openapi_server/from app.api/g' {} +; \
+		find "/tmp/steamer-api/tmp_code/openapi_server/" -type f -name \*.py -exec sed -i 's/getattr(openapi_server\.models/getattr(app.api.models/g' {} +; \
+		find "/tmp/steamer-api/tmp_code/openapi_server/" -type f -name \*.py -exec sed -i 's/import openapi_server\./import app.api./g' {} +; \
+		find "/tmp/steamer-api/tmp_code/openapi_server/" -type f -name \*.py -exec sed -i 's/from openapi_server/from app.api/g' {} +; \
+		find "/tmp/steamer-api/tmp_code/openapi_server/" -type f -name \*.py -exec sed -i 's/getattr(openapi_server\.models/getattr(app.api.models/g' {} +; \
+	fi
+
+	rm -rf src/api/models
+	cp -r /tmp/hello-world/tmp_code/openapi_server/models src/api/models
 
 
 .PHONY: clean
@@ -148,16 +146,14 @@ clean: ## 清理生成的文件
 
 
 .PHONY: docker-build
-docker-build: ## 构建 Docker 镜像
+docker-build: ## 构建 Docker 镜像 Example: make docker-build VERSION=latest
 	docker build --platform=$(PLATFORM)  \
 	--build-arg BUILD_BRANCH="$(BUILD_BRANCH)" \
 	--build-arg BUILD_COMMIT="$(BUILD_COMMIT)" \
 	--build-arg BUILD_TIME="$(BUILD_TIME)" \
-	--build-arg GOGCFLAGS="$(GOGCFLAGS)" \
-	--build-arg GOLDFLAGS="$(GOLDFLAGS)" \
-	--build-arg GOFLAGS="$(GOFLAGS)" \
 	--build-arg APP_NAME="$(APP_NAME)" \
 	-t $(IMG) .
+
 
 HOST_PORT ?= 8080
 CONTAINER_PORT ?= 8080

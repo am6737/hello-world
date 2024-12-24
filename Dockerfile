@@ -1,37 +1,25 @@
-FROM golang:1.23.2-alpine AS builder
+ARG PYTHON_VERSION=3.6
 
-ARG TARGETARCH
-ARG TARGETOS
-
-ARG GOGCFLAGS
-ARG GOLDFLAGS
-ARG GOFLAGS
-
-ARG BUILD_BRANCH
-ARG BUILD_COMMIT
-ARG BUILD_TIME
-
-ENV BUILD_BRANCH=${BUILD_BRANCH}
-ENV BUILD_COMMIT=${BUILD_COMMIT}
-ENV BUILD_TIME=${BUILD_TIME}
-ENV BUILD_GO_VERSION=1.23.2
-
-RUN echo "Branch: ${BUILD_BRANCH}, Commit: ${BUILD_COMMIT}, Build Time: ${BUILD_TIME}, Go version: ${BUILD_GO_VERSION}"
+FROM python:${PYTHON_VERSION}-slim-buster AS build_image
 
 WORKDIR /app
-
-COPY go.mod go.sum ./
-
-RUN go mod tidy
 
 COPY . .
 
-RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} CGO_ENABLED=0 go build -gcflags "${GOGCFLAGS}" -ldflags "${GOLDFLAGS}" -a -o hello-world ${GOFLAGS} ./cmd/;
+RUN apt update && apt install make git -y
 
-FROM alpine:3.18
+# [编译代码]
+RUN make build
 
-WORKDIR /app
 
-COPY --from=builder /app/hello-world .
+ARG PYTHON_VERSION=3.6
+FROM python:${PYTHON_VERSION}-slim-buster AS run_image
 
-ENTRYPOINT ["./hello-world"]
+ENV PYTHONUNBUFFERED=1
+
+COPY --from=build_image /app/pyc/ /
+COPY requirements.txt /
+
+RUN pip install -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
+
+ENTRYPOINT ["python3", "main.pyc"]

@@ -1,0 +1,30 @@
+openapi: 3.0.0
+info:
+  title: Simple HTTP Server API
+  description: A simple HTTP server that responds with a message and version information.
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080
+components:
+  schemas:
+    HelloWorldResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          example: "Hello, World!"
+        version:
+          type: string
+          example: "1.0.0"
+paths:
+  /:
+    get:
+      summary: Returns a hello world message with version information
+      operationId: getHelloWorld
+      responses:
+        '200':
+          description: A response with a message and version info
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HelloWorldResponse'
